@@ -1,0 +1,112 @@
+module imm_generator (
+    input  logic [11:0] imm_input,
+    input  logic [2:0]  fn3,
+    input  logic [6:0]  opcode,
+    input  logic [19:0] imm_input_uj,
+
+    output logic [31:0] imm_output
+);
+
+    always_comb begin
+
+        imm_output = 32'b0;
+
+        case (opcode)
+
+            // R-Type: No immediate
+            7'b0110011: begin
+                imm_output = 32'b0;
+            end
+
+            // I-Type ALU
+            7'b0010011: begin
+                if (fn3 == 3'b011 ||
+                    fn3 == 3'b100 ||
+                    fn3 == 3'b110 ||
+                    fn3 == 3'b111)
+                    imm_output = {
+                        {20{imm_input[11]}},
+                        imm_input
+                    };
+                else
+                    imm_output = {
+                        {20{imm_input[11]}},
+                        imm_input
+                    };
+            end
+
+            // Load
+            7'b0000011: begin
+                imm_output = {
+                    {20{imm_input[11]}},
+                    imm_input
+                };
+            end
+
+            // Store: S-Type
+            7'b0100011: begin
+                imm_output = {
+                    {20{imm_input_uj[19]}},
+                    imm_input_uj[19:13],
+                    imm_input_uj[0],
+                    imm_input[4:0]
+                };
+            end
+
+            // Branch: B-Type
+            7'b1100011: begin
+                imm_output = {
+                    {19{imm_input_uj[19]}},
+                    imm_input_uj[19],
+                    imm_input_uj[0],
+                    imm_input_uj[18:13],
+                    imm_input[4:1],
+                    1'b0
+                };
+            end
+
+            // JAL: J-Type
+            7'b1101111: begin
+                imm_output = {
+                    {11{imm_input_uj[19]}},
+                    imm_input_uj[19],
+                    imm_input_uj[7:0],
+                    imm_input_uj[8],
+                    imm_input_uj[18:9],
+                    1'b0
+                };
+            end
+
+            // JALR: I-Type
+            7'b1100111: begin
+                imm_output = {
+                    {20{imm_input[11]}},
+                    imm_input
+                };
+            end
+
+            // LUI: U-Type
+            7'b0110111: begin
+                imm_output = {
+                    imm_input_uj,
+                    12'b0
+                };
+            end
+
+            // AUIPC: U-Type
+            7'b0010111: begin
+                imm_output = {
+                    imm_input_uj,
+                    12'b0
+                };
+            end
+
+            default: begin
+                imm_output = 32'b0;
+            end
+
+        endcase
+
+    end
+
+endmodule
