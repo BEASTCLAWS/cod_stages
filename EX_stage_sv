@@ -1,0 +1,175 @@
+module EX(
+    input logic [31:0] rs1_data,
+    input logic [31:0] rs2_data,
+    input logic [31:0] imm,
+    input logic [31:0] pc,
+
+    input logic [2:0] alu_op,
+    input logic [2:0] fun3,
+    input logic fn7_5,
+    input logic [6:0] imm11_5,
+    input logic [6:0] opcode,
+
+    output logic [4:0] control_out,
+    output logic [31:0] alu_result,
+    output logic branch_taken,
+    output logic [31:0] branch_target
+);
+
+    logic [31:0] operand_a, operand_b;
+
+    // ALU Control
+    always_comb begin
+        control_out = 5'b00000;
+
+        case (alu_op)
+
+            // R-type
+            3'b000: begin
+                case (fun3)
+                    3'b000:
+                        if (fn7_5)
+                            control_out = 5'b00001; // SUB
+                        else
+                            control_out = 5'b00000; // ADD
+
+                    3'b001: control_out = 5'b00101; // SLL
+                    3'b010: control_out = 5'b01000; // SLT
+                    3'b011: control_out = 5'b01001; // SLTU
+                    3'b100: control_out = 5'b00010; // XOR
+
+                    3'b101:
+                        if (fn7_5)
+                            control_out = 5'b00111; // SRA
+                        else
+                            control_out = 5'b00110; // SRL
+
+                    3'b110: control_out = 5'b00011; // OR
+                    3'b111: control_out = 5'b00100; // AND
+                endcase
+            end
+
+            // I-type ALU
+            3'b001: begin
+                case (fun3)
+                    3'b000: control_out = 5'b00000; // ADDI
+                    3'b010: control_out = 5'b01000; // SLTI
+                    3'b011: control_out = 5'b01001; // SLTIU
+                    3'b100: control_out = 5'b00010; // XORI
+                    3'b110: control_out = 5'b00011; // ORI
+                    3'b111: control_out = 5'b00100; // ANDI
+
+                    3'b101:
+                        if (imm11_5 == 7'b0100000)
+                            control_out = 5'b00111; // SRAI
+                        else
+                            control_out = 5'b00110; // SRLI
+
+                    3'b001: control_out = 5'b00101; // SLLI
+                endcase
+            end
+
+            // Load and Store
+            3'b010, 3'b011:
+                control_out = 5'b00000;
+
+            // Branch
+            3'b100: begin
+                case (fun3)
+                    3'b000: control_out = 5'b01010; // BEQ
+                    3'b001: control_out = 5'b01011; // BNE
+                    3'b100: control_out = 5'b01100; // BLT
+                    3'b101: control_out = 5'b01101; // BGE
+                    3'b110: control_out = 5'b01110; // BLTU
+                    3'b111: control_out = 5'b01111; // BGEU
+                endcase
+            end
+
+            // JAL, LUI, AUIPC
+            3'b110:
+                control_out = 5'b00000;
+
+            default:
+                control_out = 5'b00000;
+
+        endcase
+    end
+
+    // Operand Selection
+    always_comb begin
+        operand_a = rs1_data;
+        operand_b = rs2_data;
+
+        case (opcode)
+
+            7'b0010011,  // I-type ALU
+            7'b0000011,  // Load
+            7'b0100011,  // Store
+            7'b1100111:  // JALR
+                operand_b = imm;
+
+            7'b0110111: begin // LUI
+                operand_a = 32'd0;
+                operand_b = imm;
+            end
+
+            7'b0010111: begin // AUIPC
+                operand_a = pc;
+                operand_b = imm;
+            end
+
+            7'b1101111: begin // JAL
+                operand_a = pc;
+                operand_b = imm;
+            end
+
+        endcase
+    end
+
+    // ALU and Branch Logic
+    always_comb begin
+        alu_result = 32'd0;
+        branch_taken = 1'b0;
+        branch_target = pc + imm;
+
+        case (control_out)
+
+            5'b00000: alu_result = operand_a + operand_b; // ADD
+            5'b00001: alu_result = operand_a - operand_b; // SUB
+            5'b00010: alu_result = operand_a ^ operand_b; // XOR
+            5'b00011: alu_result = operand_a | operand_b; // OR
+            5'b00100: alu_result = operand_a & operand_b; // AND
+            5'b00101: alu_result = operand_a << operand_b[4:0]; // SLL
+            5'b00110: alu_result = operand_a >> operand_b[4:0]; // SRL
+            5'b00111: alu_result = $signed(operand_a) >>> operand_b[4:0]; // SRA
+            5'b01000: alu_result = ($signed(operand_a) < $signed(operand_b)); // SLT
+            5'b01001: alu_result = (operand_a < operand_b); // SLTU
+
+            // Branch comparisons
+            5'b01010: branch_taken = (rs1_data == rs2_data); // BEQ
+            5'b01011: branch_taken = (rs1_data != rs2_data); // BNE
+            5'b01100: branch_taken = ($signed(rs1_data) < $signed(rs2_data)); // BLT
+            5'b01101: branch_taken = ($signed(rs1_data) >= $signed(rs2_data)); // BGE
+            5'b01110: branch_taken = (rs1_data < rs2_data); // BLTU
+            5'b01111: branch_taken = (rs1_data >= rs2_data); // BGEU
+
+            default: begin
+                alu_result = 32'd0;
+                branch_taken = 1'b0;
+            end
+
+        endcase
+
+        // JAL and JALR
+        if (opcode == 7'b1101111 || opcode == 7'b1100111) begin
+            branch_taken = 1'b1;
+            alu_result = pc + 32'd4;
+        end
+
+        // JALR target
+        if (opcode == 7'b1100111)
+            branch_target = (rs1_data + imm) & 32'hFFFFFFFE;
+
+    end
+
+endmodule
